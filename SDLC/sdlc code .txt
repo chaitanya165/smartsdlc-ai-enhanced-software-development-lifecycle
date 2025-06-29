@@ -1,0 +1,121 @@
+# -- coding: utf-8 --
+"""SmartSDLC-AI Gradio App (All-in-One Cell)"""
+
+# 📦 Install dependencies (For Google Colab)
+!pip install transformers torch gradio accelerate bitsandbytes PyPDF2 -q
+
+# 📚 Imports
+import gradio as gr
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import PyPDF2
+
+# 🤖 SmartSDLC Core Class
+class SmartSDLC_AI:
+    def _init_(self):
+        self.model_name = "ibm-granite/granite-3.3-2b-instruct"
+        self.tokenizer = None
+        self.model = None
+        self.pipeline = None
+        self.load_model()
+
+    def load_model(self):
+        try:
+            print("🔄 Loading AI model...")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                max_length=1024,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+            print("✅ AI model loaded.")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            print("⚠ Falling back to DialoGPT-medium...")
+            fallback_model = "microsoft/DialoGPT-medium"
+            self.tokenizer = AutoTokenizer.from_pretrained(fallback_model)
+            self.model = AutoModelForCausalLM.from_pretrained(fallback_model)
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                max_length=1024,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+            print("✅ Fallback model loaded.")
+
+    def analyze_requirements(self, text):
+        prompt = f"You are a software requirement analysis assistant. Analyze the following requirements and list key functionalities, ambiguities, and improvement suggestions:\n\n{text}\n\nResponse:"
+        response = self.pipeline(prompt)
+        return response[0]['generated_text'].split("Response:")[-1].strip()
+
+    def generate_code(self, description):
+        prompt = f"You are a software code generation assistant. Based on the following description, generate Python code:\n\n{description}\n\nCode:"
+        response = self.pipeline(prompt)
+        return response[0]['generated_text'].split("Code:")[-1].strip()
+
+# 📑 PDF Reader Function
+def extract_text_from_pdf(file_obj):
+    reader = PyPDF2.PdfReader(file_obj)
+    return "".join([page.extract_text() or "" for page in reader.pages])
+
+# 🖥 Gradio UI
+def create_gradio_interface():
+    with gr.Blocks(title="SmartSDLC-AI") as app:
+        gr.HTML("<h1 style='text-align:center;'>🛠 SmartSDLC-AI</h1><p style='text-align:center;'>AI-powered Requirement Analysis & Code Generation</p>")
+        with gr.Tabs():
+            # 📄 Requirement Analysis Tab
+            with gr.Tab("📄 Requirement Analysis"):
+                with gr.Row():
+                    pdf_input = gr.File(label="Upload PDF Requirements")
+                    text_input = gr.Textbox(label="Or Enter Requirement Prompt", lines=6)
+                analyze_btn = gr.Button("Analyze Requirements")
+                analysis_output = gr.Textbox(label="Requirement Analysis Result", lines=12)
+
+            # 💻 Code Generation Tab
+            with gr.Tab("💻 Code Generation"):
+                code_desc_input = gr.Textbox(label="Describe Functionality", lines=6)
+                generate_code_btn = gr.Button("Generate Code")
+                code_output = gr.Code(label="Generated Python Code", language="python")
+
+        # 🔁 Logic
+        def handle_analysis(pdf_file, prompt_text):
+            if pdf_file:
+                text = extract_text_from_pdf(pdf_file)
+            elif prompt_text.strip():
+                text = prompt_text
+            else:
+                return "❗ Please upload a PDF or enter text."
+            return smart_sdlc_ai.analyze_requirements(text)
+
+        def handle_code_generation(desc):
+            if not desc.strip():
+                return "❗ Please enter a description."
+            return smart_sdlc_ai.generate_code(desc)
+
+        # 🎯 Button Actions
+        analyze_btn.click(fn=handle_analysis, inputs=[pdf_input, text_input], outputs=analysis_output)
+        generate_code_btn.click(fn=handle_code_generation, inputs=code_desc_input, outputs=code_output)
+
+        gr.HTML("<p style='text-align:center; color:gray;'>⚙ Powered by IBM Granite AI | Built for Smart Software Engineering</p>")
+
+    return app
+
+# 🚀 Run App
+print("🚀 Initializing SmartSDLC-AI...")
+smart_sdlc_ai = SmartSDLC_AI()
+iface = create_gradio_interface()
+print("🌐 Launching with public link...")
+iface.launch(share=True)
